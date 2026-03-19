@@ -361,14 +361,14 @@ header parts:
   opts = {
     headers = {
       chat = function(parts)
-        local header = parts.title
-        if parts.context then
-          header = header .. " [" .. parts.context .. "]"
+        local pieces = { parts.title }
+        if parts.context ~= nil then
+          table.insert(pieces, parts.context)
         end
-        if parts.suffix then
-          header = header .. " • " .. parts.suffix
+        if parts.suffix ~= nil then
+          table.insert(pieces, parts.suffix)
         end
-        return header
+        return table.concat(pieces, " | ")
       end,
     },
   },
@@ -708,10 +708,7 @@ integrating with other plugins.
           if data.update.sessionUpdate == "usage_update" then
             -- Use this in your status line, scoped per tab/session.
             if vim.api.nvim_tabpage_is_valid(data.tab_page_id) then
-              vim.t[data.tab_page_id].agentic_usage = {
-                used = data.update.used,
-                size = data.update.size,
-              }
+              vim.t[data.tab_page_id].agentic_usage = data.update
             end
           end
       end
@@ -762,6 +759,61 @@ You can customize the icons used for diagnostics in the context panel:
 
 Default icons use emoji characters (❌, ⚠️, ℹ️, ✨) but you can use any string,
 including Nerd Font icons or plain text.
+
+### Add context usage and cost to the header
+
+> [!NOTE]
+> This example has only been tested with Claude-agent-acp, you may need to
+> adapt it for other providers depending on the data they provide in the
+> session updates.
+
+You can use hooks to add dynamic information to your headers, for example, to
+show context usage and cost updates in the chat header, you can listen to
+`on_session_update` and store the latest usage info in a tab-scoped variable,
+then access it in the header render function:
+
+```lua
+{
+  "carlos-algms/agentic.nvim",
+  opts = {
+    hooks = {
+      on_session_update = function(data)
+          if data.update.sessionUpdate == "usage_update" then
+            if vim.api.nvim_tabpage_is_valid(data.tab_page_id) then
+              vim.t[data.tab_page_id].agentic_usage = data.update
+            end
+          end
+      end
+    },
+    headers = {
+      chat = function(parts)
+        local pieces = { parts.title }
+        if parts.context ~= nil then
+          table.insert(pieces, parts.context)
+        end
+        if parts.suffix ~= nil then
+          table.insert(pieces, parts.suffix)
+        end
+
+        local usage = vim.t.agentic_usage
+        if usage ~= nil then
+          local used = tonumber(usage.used) or 0
+          local size = tonumber(usage.size) or 0
+          if size > 0 then
+              local pct = (used / size) * 100
+              table.insert(pieces, ("Context: %.1f%%%% (%d/%d)"):format(pct, used, size))
+              if usage.cost ~= nil and usage.cost.amount ~= nil and usage.cost.currency ~= nil then
+                table.insert(pieces, ("%.2f %s"):format(usage.cost.amount, usage.cost.currency))
+              end
+          end
+        end
+
+        return table.concat(pieces, " | ")
+      end,
+    },
+  },
+}
+```
 
 ## Integration with other Plugins
 

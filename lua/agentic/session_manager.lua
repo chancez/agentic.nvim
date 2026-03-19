@@ -29,7 +29,8 @@ local FILE_MUTATING_KINDS = {
 --- Safely invoke a user-configured hook
 --- @param hook_name "on_prompt_submit" | "on_response_complete" | "on_session_update"
 --- @param data table
-function P.invoke_hook(hook_name, data)
+--- @param on_after fun()|nil Callback to run after the hook completes (inside the same vim.schedule)
+function P.invoke_hook(hook_name, data, on_after)
     local hook = Config.hooks and Config.hooks[hook_name]
 
     if hook and type(hook) == "function" then
@@ -39,6 +40,9 @@ function P.invoke_hook(hook_name, data)
                 Logger.debug(
                     string.format("Hook '%s' error: %s", hook_name, err)
                 )
+            end
+            if on_after then
+                on_after()
             end
         end)
     end
@@ -62,6 +66,7 @@ end
 --- @field chat_history agentic.ui.ChatHistory
 --- @field _history_to_send? agentic.ui.ChatHistory.Message[] Messages to prepend on next prompt submit
 --- @field _restoring boolean Flag to prevent auto-new_session during restore
+--- @field _header_refresh_scheduled boolean Guards coalesced header refresh
 local SessionManager = {}
 SessionManager.__index = SessionManager
 
@@ -98,6 +103,7 @@ function SessionManager:new(tab_page_id)
         _is_first_message = true,
         is_generating = false,
         _restoring = false,
+        _header_refresh_scheduled = false,
     }, self)
 
     local agent = AgentInstance.get_instance(Config.provider, function(_client)
@@ -262,7 +268,9 @@ function SessionManager:_on_session_update(update)
         session_id = self.session_id,
         tab_page_id = self.tab_page_id,
         update = update,
-    })
+    }, function()
+        self:_schedule_function_header_refresh()
+    end)
 end
 
 --- Handle tool call update: update UI, history, diff preview, permissions, and reload buffers
@@ -399,6 +407,29 @@ function SessionManager:_handle_model_change(model_id, is_legacy)
             callback
         )
     end
+end
+
+--- Schedule a coalesced re-render of function-based headers.
+--- Multiple calls within the same event loop tick collapse into one render.
+function SessionManager:_schedule_function_header_refresh()
+    if self._header_refresh_scheduled then
+        return
+    end
+    if not Config.headers then
+        return
+    end
+
+    self._header_refresh_scheduled = true
+    -- Debounce updates within 150ms of each other to avoid excessive
+    -- re-renders when multiple updates come in quick succession
+    vim.defer_fn(function()
+        self._header_refresh_scheduled = false
+        for panel_name, header_config in pairs(Config.headers) do
+            if type(header_config) == "function" then
+                self.widget:render_header(panel_name)
+            end
+        end
+    end, 150)
 end
 
 --- @param mode_id string
@@ -589,7 +620,9 @@ function SessionManager:_handle_input_submit(input_text)
         prompt = input_text,
         session_id = self.session_id,
         tab_page_id = self.tab_page_id,
-    })
+    }, function()
+        self:_schedule_function_header_refresh()
+    end)
 
     local session_id = self.session_id
     local tab_page_id = self.tab_page_id
@@ -632,7 +665,9 @@ function SessionManager:_handle_input_submit(input_text)
                 tab_page_id = tab_page_id,
                 success = err == nil,
                 error = err,
-            })
+            }, function()
+                self:_schedule_function_header_refresh()
+            end)
 
             -- Save chat history after successful turn completion
             if not err then
