@@ -314,6 +314,17 @@
 --- @field on_tool_call fun(tool_call: agentic.ui.MessageWriter.ToolCallBlock): nil
 --- @field on_tool_call_update fun(tool_call: agentic.ui.MessageWriter.ToolCallBlock): nil
 
+--- @class agentic.acp.ACPRequestMessage
+--- @field id? number
+--- @field jsonrpc string
+--- @field method? string
+--- @field params? table
+
+--- @class agentic.acp.ACPHooks
+--- @field on_request fun(message: agentic.acp.ACPRequestMessage)
+--- @field on_result fun(result: table|nil, err: agentic.acp.ACPError|nil)
+--- @field on_notification fun(params: table)
+
 --- @class agentic.acp.ACPProviderConfig
 --- @field name? string Provider name
 --- @field transport_type? agentic.acp.TransportType

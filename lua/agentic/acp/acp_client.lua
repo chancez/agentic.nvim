@@ -35,6 +35,7 @@ local KNOWN_ACP_KINDS = {
 --- @field transport? agentic.acp.ACPTransportInstance
 --- @field ready_listeners fun(client: agentic.acp.ACPClient)[]
 --- @field subscribers table<string, agentic.acp.ClientHandlers>
+--- @field hooks agentic.acp.ACPHooks[]
 
 --- @class agentic.acp.ACPClient : agentic.acp.ACPClientData
 --- @field _on_ready fun(client: agentic.acp.ACPClient)
@@ -55,7 +56,7 @@ ACPClient.ERROR_CODES = {
 --- @param config agentic.acp.ACPProviderConfig
 --- @param on_ready fun(client: agentic.acp.ACPClient)
 --- @return agentic.acp.ACPClient client
-function ACPClient:new(config, on_ready)
+function ACPClient:new(config, on_ready, hooks)
     --- @type agentic.acp.ACPClientData
     local instance = {
         provider_config = config,
@@ -79,6 +80,7 @@ function ACPClient:new(config, on_ready)
         transport = nil,
         state = "disconnected",
         reconnect_count = 0,
+        hooks = {},
     }
 
     local client = setmetatable(instance, self) --[[@as agentic.acp.ACPClient]]
@@ -91,6 +93,7 @@ function ACPClient:new(config, on_ready)
         end
         c.ready_listeners = {}
     end
+    client.hooks = hooks or {}
 
     client:_setup_transport()
     client:_connect()
@@ -227,11 +230,23 @@ function ACPClient:_send_request(method, params, callback)
         params = params or {},
     }
 
-    self.callbacks[id] = callback
+    local on_request = self.hooks[method] and self.hooks[method].on_request
+    local on_result = self.hooks[method] and self.hooks[method].on_result
+
+    self.callbacks[id] = function(result, err)
+        callback(result, err)
+        if type(on_result) == "function" then
+            on_result(result, err)
+        end
+    end
 
     local data = vim.json.encode(message)
 
     Logger.debug_to_file("request: ", message)
+
+    if type(on_request) == "function" then
+        on_request(message)
+    end
 
     self.transport:send(data)
 end
@@ -319,6 +334,10 @@ function ACPClient:_handle_notification(message_id, method, params)
         )
     else
         Logger.notify("Unknown notification method: " .. method)
+    end
+    local on_notification = self.hooks[method] and self.hooks[method].on_notification
+    if type(on_notification) == "function" then
+        on_notification(params)
     end
 end
 

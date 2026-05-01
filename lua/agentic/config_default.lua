@@ -237,6 +237,7 @@
 --- @field debug boolean Enable printing debug messages which can be read via `:messages`
 --- @field provider agentic.UserConfig.ProviderName
 --- @field acp_providers table<agentic.UserConfig.ProviderName, agentic.acp.ACPProviderConfig|nil>
+--- @field acp_hooks agentic.acp.ACPHooks
 --- @field windows agentic.UserConfig.Windows
 --- @field keymaps agentic.UserConfig.Keymaps
 --- @field spinner_chars agentic.UserConfig.SpinnerChars
